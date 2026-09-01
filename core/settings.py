@@ -88,7 +88,7 @@ WSGI_APPLICATION = "core.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "tabar_db_mahsa_2",
+        "NAME": "academi_v2_mahsa_db",
         "USER": "postgres",
         "PASSWORD": "YaZahra_110",
         "HOST": "185.147.161.216",
