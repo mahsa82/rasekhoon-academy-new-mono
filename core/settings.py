@@ -11,6 +11,17 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
+import environ
+
+# ساخت متغیر BASE_DIR (مسیر اصلی پروژه)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# ساخت شیء env
+env = environ.Env()
+
+# خواندن فایل .env از مسیر اصلی پروژه
+environ.Env.read_env(BASE_DIR / ".env")
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,6 +61,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "silk",
     "jalali_date",
+    "rest_framework_simplejwt.token_blacklist",  # برای logout واقعی و rotation
 ]
 
 MIDDLEWARE = [
@@ -146,3 +158,79 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://localhost:6379/2",
+        "KEY_PREFIX": "rasekhoon_academy",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "TIMEOUT": None,  # پیش‌فرض کش رو بی‌نهایت نذار؛ هر cache.set خودش timeout مشخص می‌کنه
+    }
+}
+
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+    # جلوگیری از brute-force و اسکن API — پیش‌فرض کلی، هر ویو می‌تونه override کنه
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "20/minute",
+        "user": "120/minute",
+    },
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_FILTER_BACKENDS": (
+        "django_filters.rest_framework.DjangoFilterBackend",
+    ),
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 12,
+}
+
+
+SIMPLE_JWT = {
+    # عمر کوتاه access token — حتی اگه دزدیده بشه، زود از کار می‌افته
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+ 
+    # عمر بلند refresh token — تا وقتی کاربر با همین دستگاه فعاله، لاگینش می‌مونه
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365),
+ 
+    # هر بار access token رو با refresh token تمدید می‌کنی، یه refresh token
+    # *جدید* هم صادر می‌شه و قدیمی باطل می‌شه — یعنی عملاً "sliding session":
+    # تا وقتی کاربر حداقل هر ۳۶۵ روز یک‌بار اپ رو باز کنه، هیچ‌وقت لاگ‌اوت نمی‌شه.
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+ 
+    "UPDATE_LAST_LOGIN": True,
+ 
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": env("JWT_SIGNING_KEY", default=SECRET_KEY),
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+ 
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+}
+
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Smart Learning Dashboard API",
+    "DESCRIPTION": "مستندات API داشبورد آکادمی راسخون",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+}
+
+
+SMS_PROVIDER_CLASS = "accounts.services.sms.sms_ir.SmsIrProvider"
+SMS_IR_API_KEY = env("SMS_IR_API_KEY")
+SMS_IR_OTP_TEMPLATE_ID = env("SMS_IR_OTP_TEMPLATE_ID")
+

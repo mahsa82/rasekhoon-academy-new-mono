@@ -41,3 +41,7 @@ django-allauth==64.*
 ffmpeg==1.4
 
 django-silk==5.5.0
+
+django-environ==0.14.0
+
+requests==2.32.5
