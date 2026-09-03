@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+
 import environ
 
 # ساخت متغیر BASE_DIR (مسیر اصلی پروژه)
@@ -60,7 +61,6 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "silk",
-    "jalali_date",
     "rest_framework_simplejwt.token_blacklist",  # برای logout واقعی و rotation
 ]
 
@@ -159,17 +159,28 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://localhost:6379/2",
-        "KEY_PREFIX": "rasekhoon_academy",
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
-        "TIMEOUT": None,  # پیش‌فرض کش رو بی‌نهایت نذار؛ هر cache.set خودش timeout مشخص می‌کنه
+if DEBUG:
+    # حالت توسعه: اگه روی سیستم‌تون Redis نصب/بالا نیست (یا نمی‌خواید نصبش
+    # کنید)، همین کش حافظه‌ای (in-memory) کافیه تا runserver بدون خطا بالا
+    # بیاد و بتونید ثبت‌نام/OTP/ورود رو تست کنید. محدودیتش اینه که با هر ری‌استارت
+    # سرور (یا هر پردازش/worker جدا) پاک می‌شه و بین چند process مشترک نیست —
+    # برای تست دستی روی یک runserver مشکلی نداره.
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+else:
+    # حالت production: حتماً باید همین Redis واقعی باشه — چون rate-limit
+    # ثبت‌نام/OTP (accounts/services/otp.py) به رفتار اتمیک و مشترک بین
+    # چند process نیاز داره که فقط Redis واقعی تضمینش می‌کنه.
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": env("REDIS_URL", default="redis://localhost:6379/2"),
+            "KEY_PREFIX": "rasekhoon_academy",
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "TIMEOUT": None,  # پیش‌فرض کش رو بی‌نهایت نذار؛ هر cache.set خودش timeout مشخص می‌کنه
+        }
     }
-}
 
 
 REST_FRAMEWORK = {
@@ -233,4 +244,12 @@ SPECTACULAR_SETTINGS = {
 SMS_PROVIDER_CLASS = "accounts.services.sms.sms_ir.SmsIrProvider"
 SMS_IR_API_KEY = env("SMS_IR_API_KEY")
 SMS_IR_OTP_TEMPLATE_ID = env("SMS_IR_OTP_TEMPLATE_ID")
+
+# Client ID اپلیکیشن گوگل (از Google Cloud Console) — همون Client ID که فرانت
+# (وب/موبایل) موقع Sign in with Google استفاده می‌کنه. accounts.services.google_auth
+# با همین مقدار claim «aud» توکن دریافتی رو چک می‌کنه.
+# default="" عمداست: تا وقتی این مقدار رو در .env نذاشتید، بقیه‌ی سرور
+# (ثبت‌نام/OTP/ورود معمولی) بدون مشکل بالا میاد؛ فقط اندپوینت ورود با گوگل
+# در این حالت همیشه با خطای «توکن نامعتبر» رد می‌شه، نه اینکه کل سرور کرش کنه.
+GOOGLE_OAUTH_CLIENT_ID = env("GOOGLE_OAUTH_CLIENT_ID", default="")
 

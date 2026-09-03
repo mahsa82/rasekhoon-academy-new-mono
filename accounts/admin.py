@@ -1,7 +1,8 @@
+import jdatetime
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
-import jalali_date
+
 from .models import User
 
 @admin.register(User)
@@ -84,7 +85,17 @@ class CustomUserAdmin(BaseUserAdmin):
 
     @admin.display(description=_("تاریخ عضویت (شمسی)"), ordering="date_joined")
     def get_date_joined_jalali(self, obj):
-        """تبدیل تاریخ میلادی ذخیره‌شده در DB به خروجی شمسی در لیست ادمین"""
+        """
+        تبدیل تاریخ میلادی ذخیره‌شده در DB به خروجی شمسی در لیست ادمین.
+
+        قبلاً از پکیج jalali_date (django-jalali-date) استفاده می‌شد که روی
+        پایتون ۳.۱۲+ به خاطر وابستگی به distutils کرش می‌کرد و دیگه نگه‌داری
+        هم نمی‌شه. چون پروژه از قبل به django-jalali وابسته‌ست (که خودش روی
+        jdatetime ساخته شده)، همون jdatetime رو مستقیم استفاده می‌کنیم —
+        یک پکیج کمتر، بدون نیاز به هیچ compat شیمی.
+        """
         if obj.date_joined:
-            return jalali_date.date2jalali(obj.date_joined).strftime("%Y/%m/%d - %H:%M")
+            return jdatetime.datetime.fromgregorian(datetime=obj.date_joined).strftime(
+                "%Y/%m/%d - %H:%M"
+            )
         return "-"

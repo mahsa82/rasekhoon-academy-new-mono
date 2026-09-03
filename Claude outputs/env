@@ -1,0 +1,17 @@
+# تنظیمات امنیتی جنگو
+SECRET_KEY=gYWbhV_Z3y5iHxqGTKQk7snmIXDu08VdVrff_UOfH4IlGuk9hbwURmw_hr1x8xW1Esw   #python -c "import secrets; print(secrets.token_urlsafe(50))"
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost
+
+# تنظیمات دیتابیس و کش
+REDIS_URL=redis://127.0.0.1:6379/2
+
+# کلیدهای سرویس‌های جانبی
+JWT_SIGNING_KEY=b74zqA0rkJYIL1M5GLt-36auLNerewashQryMwOGp60
+SMS_IR_API_KEY=https://api.sms.ir/v1/send/verify   # python -c "import secrets; print(secrets.token_urlsafe(32))"
+SMS_IR_OTP_TEMPLATE_ID=100000
+
+# Client ID اپ گوگل از Google Cloud Console (APIs & Services > Credentials >
+# OAuth 2.0 Client IDs). حتماً قبل از تست ورود با گوگل مقداردهی کن، وگرنه
+# GoogleLoginView همیشه توکن‌ها رو نامعتبر تشخیص می‌ده.
+GOOGLE_OAUTH_CLIENT_ID=

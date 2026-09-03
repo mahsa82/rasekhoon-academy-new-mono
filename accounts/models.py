@@ -11,6 +11,17 @@ phone_regex = RegexValidator(
     message=_("شماره موبایل باید با ۰۹ شروع شده و ۱۱ رقم باشد."),
 )
 
+# اعتبارسنجی نام کاربری: دقیقاً قانون اینستاگرام —
+# فقط حروف انگلیسی، عدد، نقطه (.) و آندرلاین (_)؛ حداقل ۳ و حداکثر ۳۰ کاراکتر؛
+# نباید با نقطه شروع/پایان یابد یا دو نقطه پشت‌سرهم داشته باشد.
+username_regex = RegexValidator(
+    regex=r"^(?!.*\.\.)(?!\.)[A-Za-z0-9._]{3,30}(?<!\.)$",
+    message=_(
+        "نام کاربری فقط می‌تواند شامل حروف انگلیسی، عدد، نقطه (.) و آندرلاین (_) باشد، "
+        "بین ۳ تا ۳۰ کاراکتر باشد و نباید با نقطه شروع/پایان یابد یا دو نقطه پشت‌سرهم داشته باشد."
+    ),
+)
+
 
 class UserManager(BaseUserManager):
     """
@@ -85,19 +96,35 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=30,
         unique=True,
         db_index=True,
+        validators=[username_regex],
         verbose_name=_("نام کاربری"),
     )
     phone_number = models.CharField(
         max_length=11,
         unique=True,
         db_index=True,
+        null=True,
+        blank=True,
         validators=[phone_regex],
         verbose_name=_("شماره موبایل"),
+        help_text=_(
+            "برای کاربرانی که فقط از طریق گوگل ثبت‌نام کرده‌اند، تا زمان افزودن و "
+            "تایید شماره موبایل خالی می‌ماند."
+        ),
     )
     email = models.EmailField(
         unique=True,
         db_index=True,
         verbose_name=_("پست الکترونیکی"),
+    )
+    google_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("شناسه گوگل"),
+        help_text=_("مقدار sub برگشتی از Google ID Token؛ برای اتصال ورود با گوگل."),
     )
 
     user_type = models.CharField(
@@ -140,4 +167,5 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         display_name = self.full_name or self.username
-        return f"{display_name} ({self.phone_number})"
+        identifier = self.phone_number or self.email
+        return f"{display_name} ({identifier})"
