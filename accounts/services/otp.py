@@ -20,6 +20,8 @@ CACHES = {
 }
 """
 
+import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 
@@ -29,6 +31,23 @@ OTP_TTL_SECONDS = 180          # ۳ دقیقه اعتبار کد
 MAX_VERIFY_ATTEMPTS = 5        # حداکثر تلاش برای وارد کردن کد درست
 THROTTLE_WINDOW_SECONDS = 600  # ۱۰ دقیقه
 THROTTLE_MAX_REQUESTS = 3      # حداکثر تعداد درخواست ارسال کد در بازه بالا
+
+
+def _hash_code(phone_number: str, purpose: str, code: str) -> str:
+    """
+    [امنیت]
+    به‌جای خودِ کد، فقط هش آن در کش ذخیره می‌شود — درست مثل رمز عبور کاربر
+    که هیچ‌وقت خام در دیتابیس نیست. این‌طوری اگر یک روز به هر دلیلی
+    (ابزار مانیتورینگ، دسترسی غیرمجاز به Redis و ...) محتوای کش قابل
+    مشاهده باشد، کدهای معتبرِ در حال استفاده مستقیماً لو نمی‌روند.
+
+    phone_number/purpose هم داخل ورودی هش شرکت داده شده‌اند تا کد هشِ یک
+    شماره/purpose برای شماره یا purpose دیگری قابل استفاده‌ی مجدد نباشد
+    (even اگر دو کاربر تصادفاً کد یکسانی گرفته باشند).
+    """
+    digest_input = f"{phone_number}:{purpose}:{code}".encode()
+    return hashlib.sha256(digest_input).hexdigest()
+
 
 # ساخت کلید ذخیره خودِ کد
 def _otp_key(phone_number: str, purpose: str) -> str:
@@ -70,7 +89,9 @@ def request_otp(phone_number: str, purpose: str = "register") -> OTPRequestResul
 
     code = f"{secrets.randbelow(90000) + 10000}"  # کد ۵ رقمی، امن در برابر پیش‌بینی
 
-    cache.set(_otp_key(phone_number, purpose), code, timeout=OTP_TTL_SECONDS)
+    # فقط هش کد در کش ذخیره می‌شود؛ خودِ کد فقط در همین لحظه (برای ارسال
+    # پیامک) در پاسخ این تابع برمی‌گردد و جایی ذخیره نمی‌شود.
+    cache.set(_otp_key(phone_number, purpose), _hash_code(phone_number, purpose, code), timeout=OTP_TTL_SECONDS)
     cache.delete(_attempts_key(phone_number, purpose))  # ریست شمارنده تلاش برای کد جدید
 
     # افزایش شمارنده throttle؛ اولین بار TTL رو ست می‌کنیم، بعدش فقط incr
@@ -84,8 +105,13 @@ def request_otp(phone_number: str, purpose: str = "register") -> OTPRequestResul
 
 def verify_otp(phone_number: str, code: str, purpose: str = "register") -> bool:
     """
-    کد وارد شده رو با کد ذخیره‌شده در کش مقایسه می‌کنه.
+    کد وارد شده رو (بعد از هش کردن) با هشِ ذخیره‌شده در کش مقایسه می‌کنه.
     در صورت موفقیت، کد رو از کش پاک می‌کنه (یک‌بارمصرف واقعی).
+
+    مقایسه با hmac.compare_digest انجام می‌شه، نه ==، تا زمان مقایسه به
+    تعداد کاراکترهای مشترکِ ابتدای رشته وابسته نباشه (جلوگیری از timing
+    attack روی خودِ فرآیند مقایسه — یک لایه‌ی دفاعی اضافه، در کنار throttle
+    و سقف تلاش که اصل حمله‌ی brute-force رو مسدود می‌کنن).
     """
     attempts_key = _attempts_key(phone_number, purpose)
     attempts = cache.get(attempts_key, 0)
@@ -93,12 +119,12 @@ def verify_otp(phone_number: str, code: str, purpose: str = "register") -> bool:
     if attempts >= MAX_VERIFY_ATTEMPTS:
         return False
 
-    stored_code = cache.get(_otp_key(phone_number, purpose))
+    stored_hash = cache.get(_otp_key(phone_number, purpose))
 
-    if stored_code is None:
+    if stored_hash is None:
         return False  # منقضی شده یا اصلاً درخواست نشده
 
-    if stored_code != code:
+    if not hmac.compare_digest(stored_hash, _hash_code(phone_number, purpose, code)):
         cache.set(attempts_key, attempts + 1, timeout=OTP_TTL_SECONDS)
         return False
 

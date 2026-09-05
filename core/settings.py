@@ -61,7 +61,12 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "silk",
-    "rest_framework_simplejwt.token_blacklist",  # برای logout واقعی و rotation
+    # توجه: rest_framework_simplejwt.token_blacklist عمداً نصب نیست — این اپ
+    # متن کامل هر refresh token صادرشده رو در OutstandingToken و هر توکن
+    # باطل‌شده رو در BlacklistedToken، در دیتابیس ذخیره می‌کرد. به‌جاش
+    # logout/تغییر رمز کاملاً stateless پیاده شده (کش برای logout تک‌نشست،
+    # امضای وابسته به رمز عبور برای ابطال همه‌ی نشست‌ها) —
+    # accounts/services/tokens.py و accounts/api/v1/authentication.py را ببینید.
 ]
 
 MIDDLEWARE = [
@@ -185,7 +190,10 @@ else:
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # به‌جای JWTAuthentication خام simplejwt: همون رفتار + رد کردن
+        # access tokenی که رمز عبور صاحبش بعد از صدورش عوض شده
+        # (accounts/api/v1/authentication.py).
+        "accounts.api.v1.authentication.AppJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -198,6 +206,11 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "20/minute",
         "user": "120/minute",
+        # مسیرهای حساس فراموشی/تغییر رمز عبور: هم جلوی اسپم پیامک OTP رو
+        # می‌گیره هم جلوی brute-force حدس زدن رمز فعلی در تغییر رمز.
+        # ScopedRateThrottle به‌صورت خودکار برای کاربر لاگین‌شده بر اساس
+        # شناسه‌ی کاربر و برای کاربر مهمان بر اساس IP شمارش می‌کنه.
+        "password_security": "10/hour",
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_FILTER_BACKENDS": (
@@ -219,8 +232,15 @@ SIMPLE_JWT = {
     # *جدید* هم صادر می‌شه و قدیمی باطل می‌شه — یعنی عملاً "sliding session":
     # تا وقتی کاربر حداقل هر ۳۶۵ روز یک‌بار اپ رو باز کنه، هیچ‌وقت لاگ‌اوت نمی‌شه.
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
- 
+    # قبلاً True بود و به token_blacklist وابسته بود (خودِ توکن قدیمی رو
+    # بعد از هر رفرش در دیتابیس باطل می‌کرد). چون اون اپ دیگه نصب نیست،
+    # این تنظیم رو صادقانه False گذاشتیم؛ True نگه داشتنش صرفاً نادیده
+    # گرفته می‌شد (simplejwt خودش AttributeError رو silent catch می‌کنه)
+    # و گمراه‌کننده بود. توکن قدیم بعد از rotation طبیعتاً بی‌استفاده
+    # می‌مونه ولی تا انقضای طبیعی‌اش معتبره — دقیقاً مثل هر access token
+    # دیگه‌ای که هیچ‌وقت صریحاً logout نشده.
+    "BLACKLIST_AFTER_ROTATION": False,
+
     "UPDATE_LAST_LOGIN": True,
  
     "ALGORITHM": "HS256",
@@ -231,6 +251,28 @@ SIMPLE_JWT = {
  
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
 }
+
+# عمر توکن یک‌بارمصرفِ بازیابی رمز عبور — یک نوع JWT کاملاً جدا از
+# access/refresh (accounts/services/tokens.py::PasswordResetToken)، فقط
+# برای رد شدن از «تایید کد پیامکی» به «ثبت رمز جدید». کوتاه نگه داشته شده
+# چون این توکن هیچ دسترسی دیگه‌ای به حساب نمی‌ده و AUTH_TOKEN_CLASSES بالا
+# هم به AccessToken محدوده، پس حتی اگه این توکن به‌جای Bearer token فرستاده
+# بشه، JWTAuthentication به خاطر ناهم‌خوانی token_type ردش می‌کنه.
+PASSWORD_RESET_TOKEN_LIFETIME = timedelta(minutes=10)
+
+# تنظیمات کوکی httpOnly که refresh token در آن نگه داشته می‌شود
+# (accounts/api/v1/cookies.py). access token هرگز کوکی نمی‌شود؛ فقط در
+# پاسخ JSON برمی‌گردد تا فرانت آن را در حافظه‌ی موقت نگه دارد.
+#
+# SECURE=True یعنی این کوکی فقط روی HTTPS فرستاده می‌شود — در DEBUG (توسعه‌ی
+# محلی روی http://) False است تا در محیط توسعه هم قابل تست باشد.
+REFRESH_TOKEN_COOKIE_SECURE = not DEBUG
+# "Lax" برای فرانت هم-origin (یا پشت reverse proxy مشترک) کافی و امن‌تر از
+# "None" است. اگر فرانت روی دامنه‌ی کاملاً جدا اجرا شود (cross-site)، باید
+# این مقدار به "None" تغییر کند و هم‌زمان CORS (با CORS_ALLOW_CREDENTIALS=True
+# و یک origin مشخص، نه "*") پیکربندی شود — نگاه کنید به توضیح کامل در
+# accounts/api/v1/cookies.py.
+REFRESH_TOKEN_COOKIE_SAMESITE = "Lax"
 
 
 SPECTACULAR_SETTINGS = {
@@ -252,4 +294,35 @@ SMS_IR_OTP_TEMPLATE_ID = env("SMS_IR_OTP_TEMPLATE_ID")
 # (ثبت‌نام/OTP/ورود معمولی) بدون مشکل بالا میاد؛ فقط اندپوینت ورود با گوگل
 # در این حالت همیشه با خطای «توکن نامعتبر» رد می‌شه، نه اینکه کل سرور کرش کنه.
 GOOGLE_OAUTH_CLIENT_ID = env("GOOGLE_OAUTH_CLIENT_ID", default="")
+
+
+# لاگ‌گیری از رویدادهای امنیتی حساب کاربری (ورود موفق/ناموفق، verify-otp) —
+# accounts/api/v1/serializers.py و views.py با logging.getLogger(__name__)
+# لاگ می‌کنن. بدون این تنظیم، پیام‌های سطح INFO توسط پیکربندی پیش‌فرض جنگو
+# نمایش داده نمی‌شن (فقط WARNING به بالا از طریق هندلر پیش‌فرض دیده می‌شه).
+# disable_existing_loggers=False عمداً False است تا لاگرهای پیش‌فرض جنگو
+# (django.request برای خطاهای ۵۰۰ و ...) دست‌نخورده بمونن.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "accounts": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 

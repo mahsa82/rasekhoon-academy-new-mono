@@ -3,7 +3,25 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import User
+from .models import SupportRole, User
+
+
+@admin.register(SupportRole)
+class SupportRoleAdmin(admin.ModelAdmin):
+    """
+    مدیریت نقش‌های پشتیبانی از پنل ادمین جنگو — همون کاری که
+    SupportRoleListCreateView/SupportRoleDetailView از طریق API انجام
+    می‌دن، اینجا هم برای مدیر ارشدی که ترجیح می‌ده از پنل ادمین کار کنه
+    در دسترسه. search_fields لازمه چون CustomUserAdmin پایین از
+    autocomplete_fields برای support_role استفاده می‌کنه.
+    """
+
+    list_display = ("name", "description", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "description")
+    ordering = ("name",)
+    readonly_fields = ("created_at",)
+
 
 @admin.register(User)
 class CustomUserAdmin(BaseUserAdmin):
@@ -13,18 +31,20 @@ class CustomUserAdmin(BaseUserAdmin):
         "username",
         "full_name",
         "user_type",
+        "support_role",
         "is_phone_verified",
         "is_active",
         "is_staff",
         "get_date_joined_jalali",
     )
-    
+
     # ستون‌های دارای لینک به صفحه ویرایش
     list_display_links = ("phone_number", "username")
 
     # فیلترهای سمت راست
     list_filter = (
         "user_type",
+        "support_role",
         "is_phone_verified",
         "is_active",
         "is_staff",
@@ -38,13 +58,19 @@ class CustomUserAdmin(BaseUserAdmin):
     # ترتیب مرتب‌سازی پیش‌فرض
     ordering = ("-date_joined",)
 
+    # چون support_role حالا یک ForeignKey (به SupportRole) است نه یک
+    # choices ثابت، از یک ویجت جست‌وجوپذیر استفاده می‌کنیم (نیازمند
+    # SupportRoleAdmin.search_fields که بالا تعریف شده) به‌جای یک dropdown
+    # ساده که با رشد تعداد نقش‌ها ناکارآمد می‌شه.
+    autocomplete_fields = ("support_role",)
+
     # چیدمان فیلدها در صفحه ویرایش کاربر
     fieldsets = (
         (_("اطلاعات حساب کاربر"), {
             "fields": ("phone_number", "email", "username", "password")
         }),
         (_("اطلاعات شخصی"), {
-            "fields": ("full_name", "user_type")
+            "fields": ("full_name", "user_type", "support_role")
         }),
         (_("دسترسیا و وضعیت‌ها"), {
             "fields": (
@@ -71,6 +97,7 @@ class CustomUserAdmin(BaseUserAdmin):
                 "username",
                 "full_name",
                 "user_type",
+                "support_role",
                 "password1",
                 "password2",
                 "is_active",

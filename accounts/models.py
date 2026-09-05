@@ -1,6 +1,7 @@
 import uuid
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -21,6 +22,66 @@ username_regex = RegexValidator(
         "بین ۳ تا ۳۰ کاراکتر باشد و نباید با نقطه شروع/پایان یابد یا دو نقطه پشت‌سرهم داشته باشد."
     ),
 )
+
+
+class SupportRole(models.Model):
+    """
+    [OCP - Open/Closed Principle]
+    قبلاً زیرنوع‌های پشتیبانی (فنی/مالی/عمومی) به‌صورت TextChoices ثابت در
+    کد تعریف شده بودند — یعنی هر نقش پشتیبانی جدید نیاز به تغییر کد،
+    migration و دیپلوی مجدد داشت. حالا مدیر ارشد خودش از طریق API
+    (accounts/api/v1/views.py::SupportRoleListCreateView/SupportRoleDetailView)
+    هر نقش پشتیبانی دلخواهی رو تعریف/ویرایش/غیرفعال می‌کنه، بدون این‌که یک
+    خط از کد پروژه عوض بشه یا release جدیدی لازم باشه.
+
+    [DIP]
+    User.support_role به این مدل (abstraction) وابسته‌ست، نه به یک لیست
+    ثابت رشته‌ای؛ یعنی «چه نقش‌های پشتیبانی‌ای وجود دارن» یک تصمیم داده‌ایه
+    که در دیتابیس زندگی می‌کنه، نه در کد.
+
+    چرا is_active به‌جای حذف واقعی:
+    چون User.support_role با on_delete=PROTECT تعریف شده، نقشی که به یک یا
+    چند کاربر اختصاص داده شده اصلاً قابل حذف نیست (SupportRoleDetailView
+    این حالت رو با یک پیام فارسی روشن رد می‌کنه، نه یک خطای ۵۰۰). راه درست
+    کنار گذاشتن یک نقش قدیمی، غیرفعال کردنشه، نه حذفش — این‌طوری سابقه‌ی
+    کاربرهایی که قبلاً این نقش رو داشتن هم خراب نمی‌شه.
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        verbose_name=_("شناسه یکتا"),
+    )
+    name = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name=_("عنوان نقش پشتیبانی"),
+        help_text=_("مثلاً «فنی»، «مالی»، «پشتیبانی محتوا»."),
+    )
+    description = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("توضیحات"),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("فعال"),
+        help_text=_("نقش‌های غیرفعال دیگر برای اختصاص به کاربر جدید قابل انتخاب نیستند."),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=_("تاریخ ایجاد"),
+    )
+
+    class Meta:
+        db_table = "accounts_support_role"
+        verbose_name = _("نقش پشتیبانی")
+        verbose_name_plural = _("نقش‌های پشتیبانی")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 
 class UserManager(BaseUserManager):
@@ -75,10 +136,26 @@ class User(AbstractBaseUser, PermissionsMixin):
     """
 
     class UserType(models.TextChoices):
+        """
+        [OCP - Open/Closed Principle]
+        این فهرست، سطح اول نقش‌های بیزینسی سایت رو مشخص می‌کنه. اضافه کردن
+        یک نقش کاملاً جدید (مثلاً «همکار محتوا») یعنی فقط یک خط اینجا اضافه
+        می‌شه؛ چیزی توی permissions.py یا serializers.py که به مقدار دقیق
+        این enum وابسته نیست، نیازی به تغییر نداره.
+
+        نکته درباره‌ی «پشتیبانی»: زیرنوع دقیق پشتیبانی (فنی، مالی، عمومی و
+        هر مورد دیگه‌ای که مدیر ارشد بعداً تعریف کنه) دیگه توی همین enum
+        نیست — چون این‌ها می‌تونن پویا و توسط خودِ مدیر ارشد از طریق API
+        تعریف بشن، به یک مدل جدا (SupportRole، بالای همین فایل) منتقل شدن
+        و با یک ForeignKey (پایین‌تر: support_role) به کاربر وصل می‌شن.
+        SUPPORT اینجا فقط سطح اول (نقش) رو مشخص می‌کنه.
+        """
+
         STUDENT = "student", _("دانش‌آموز")
         INSTRUCTOR = "instructor", _("مدرس")
+        TEACHING_ASSISTANT = "teaching_assistant", _("کمک مدرس")
         ADMIN = "admin", _("مدیر ارشد")
-        SUPERVISOR = "supervisor", _("سوپروایزر")
+        SUPPORT = "support", _("پشتیبانی")
 
     id = models.UUIDField(
         primary_key=True,
@@ -133,6 +210,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=UserType.STUDENT,
         verbose_name=_("نقش کاربر"),
     )
+    support_role = models.ForeignKey(
+        SupportRole,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="users",
+        verbose_name=_("نقش پشتیبانی"),
+        help_text=_(
+            "فقط برای کاربرانی با نقش «پشتیبانی» پر می‌شود؛ برای بقیه‌ی نقش‌ها "
+            "باید خالی بماند. مقادیر مجاز از طریق API مدیریت نقش‌های پشتیبانی "
+            "(فقط مدیر ارشد) تعریف/مدیریت می‌شوند، نه در کد."
+        ),
+    )
 
     is_phone_verified = models.BooleanField(
         default=False,
@@ -164,6 +254,26 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_table = "accounts_user"
         verbose_name = _("کاربر")
         verbose_name_plural = _("کاربران")
+
+    def clean(self):
+        """
+        [SRP]
+        فقط یک قانون سازگاری داده رو تضمین می‌کنه: support_role فقط برای
+        نقش SUPPORT معنا داره. این چک هم توی فرم‌های ادمین جنگو (که خودکار
+        full_clean صدا می‌زنن) و هم هرجای دیگه‌ای که صریحاً full_clean/clean
+        صدا زده بشه اجرا می‌شه؛ سریالایزرها (ChangeUserRoleSerializer) هم
+        جدا و صریح همین قانون رو چک می‌کنن چون DRF به‌طور پیش‌فرض
+        Model.clean رو صدا نمی‌زنه.
+        """
+        super().clean()
+        if self.user_type == self.UserType.SUPPORT and not self.support_role_id:
+            raise ValidationError(
+                {"support_role": _("برای نقش «پشتیبانی»، انتخاب نقش پشتیبانی الزامی است.")}
+            )
+        if self.user_type != self.UserType.SUPPORT and self.support_role_id:
+            raise ValidationError(
+                {"support_role": _("این فیلد فقط برای نقش «پشتیبانی» قابل استفاده است.")}
+            )
 
     def __str__(self):
         display_name = self.full_name or self.username
